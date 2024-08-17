@@ -1,0 +1,299 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create Fargate and ALB
+
+Parameters:
+  ProjectName:
+    Default: ProjectName
+    Type: String
+    Description: Project Name
+  ECSTaskName:
+    Type: String
+    Description: ECS Task Name for ECSTaskDefinition
+  ImageName:
+    Type: String
+    Description: ECS Image Name for ECSTaskDefinition
+
+Resources:
+  ######################################################
+  ###  EndPoint                                      ###
+  ######################################################
+  DkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      SubnetIds:
+        - Fn::ImportValue: !Sub ${ProjectName}-PriSub1aId
+        - Fn::ImportValue: !Sub ${ProjectName}-PriSub1cId
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.dkr"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref Endpointsg
+      VpcId:
+        "Fn::ImportValue": { "Fn::Sub": "${ProjectName}-VpcId" }
+
+  ApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      SubnetIds:
+        - Fn::ImportValue: !Sub ${ProjectName}-PriSub1aId
+        - Fn::ImportValue: !Sub ${ProjectName}-PriSub1cId
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.api"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref Endpointsg
+      VpcId:
+        "Fn::ImportValue": { "Fn::Sub": "${ProjectName}-VpcId" }
+
+  LogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      SubnetIds:
+        - Fn::ImportValue: !Sub ${ProjectName}-PriSub1aId
+        - Fn::ImportValue: !Sub ${ProjectName}-PriSub1cId
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.logs"
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SecurityGroupIds:
+        - !Ref Endpointsg
+      VpcId:
+        "Fn::ImportValue": { "Fn::Sub": "${ProjectName}-VpcId" }
+
+  ######################################################
+  ###  Security Group                                ###
+  ######################################################
+  ALBsg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: security group from web to ecs via alb for alb
+      GroupName: !Sub ${ProjectName}-alb-tg
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-alb-sg_tag
+      VpcId:
+        "Fn::ImportValue": { "Fn::Sub": "${ProjectName}-VpcId" }
+
+  ECSsg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: security group from alb to ecs for ecs
+      GroupName: !Sub ${ProjectName}-ecs-tg
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-ecs-sg_tag
+      VpcId:
+        "Fn::ImportValue": { "Fn::Sub": "${ProjectName}-VpcId" }
+
+  ALBsgEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref ALBsg
+      DestinationSecurityGroupId: !GetAtt ECSsg.GroupId
+      Description: to ecs
+      FromPort: 80
+      ToPort: 80
+      IpProtocol: tcp
+
+  ALBsgIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ALBsg
+      CidrIp: 0.0.0.0/0
+      Description: from web
+      IpProtocol: -1
+
+  ECSsgEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      GroupId: !Ref ECSsg
+      CidrIp: 0.0.0.0/0
+      Description: for web
+      IpProtocol: -1
+
+  ECSsgIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref ECSsg
+      SourceSecurityGroupId: !GetAtt ALBsg.GroupId
+      Description: from alb
+      FromPort: 80
+      ToPort: 80
+      IpProtocol: tcp
+
+  Endpointsg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: security group from ecs to anywhere via endpoint for endpoint
+      GroupName: !Sub ${ProjectName}-endpoint-tg
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          Description: from ecs
+          IpProtocol: -1
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-endpoint-sg_tag
+      VpcId:
+        "Fn::ImportValue": { "Fn::Sub": "${ProjectName}-VpcId" }
+
+  ######################################################
+  ###  ALB                                           ###
+  ######################################################
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ProjectName}-alb
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref ALBsg
+      Subnets:
+        - Fn::ImportValue: !Sub ${ProjectName}-PubSub1aId
+        - Fn::ImportValue: !Sub ${ProjectName}-PubSub1cId
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-alb_tag
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId:
+        "Fn::ImportValue": { "Fn::Sub": "${ProjectName}-VpcId" }
+      Name: !Sub ${ProjectName}-alb-tg
+      Protocol: HTTP
+      Port: 80
+      TargetType: ip
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - TargetGroupArn: !Ref TargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+
+  ######################################################
+  ###  Log                                           ###
+  ######################################################
+  ECSLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub ${ProjectName}-log-group
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-log-group_tag
+
+  ######################################################
+  ###  IAM                                           ###
+  ######################################################
+  ECSRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ecs-tasks.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      Policies:
+        - PolicyName: AdminFromCfn
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: "*"
+                Resource: "*"
+      Description: !Sub execution role for ${ProjectName}-${ECSTaskName}
+      RoleName: !Sub ${ProjectName}-${ECSTaskName}
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${ECSTaskName}_tag
+
+  ######################################################
+  ###  ECS                                           ###
+  ######################################################
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub ${ProjectName}-ecs-cluster
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-ecs-cluster_tag
+
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Cpu: 1024
+      ExecutionRoleArn: !Ref ECSRole
+      Family: !Sub ${ProjectName}-${ECSTaskName}
+      Memory: 2048
+      NetworkMode: awsvpc
+      PidMode: task
+      RequiresCompatibilities:
+        - FARGATE
+      ContainerDefinitions:
+        - Image: !Ref ImageName
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ECSLogGroup
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: !Ref ProjectName
+          Name: !Sub ${ProjectName}-container
+          MemoryReservation: 128
+          PortMappings:
+            - AppProtocol: http
+              ContainerPort: 80
+              Name: to-web
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-${ECSTaskName}_tag
+
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener
+    Properties:
+      Cluster: !Ref ECSCluster
+      LaunchType: FARGATE
+      LoadBalancers:
+        - ContainerName: !Sub ${ProjectName}-container
+          ContainerPort: 80
+          TargetGroupArn: !Ref TargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ECSsg
+          Subnets:
+            - Fn::ImportValue: !Sub ${ProjectName}-PriSub1aId
+            - Fn::ImportValue: !Sub ${ProjectName}-PriSub1cId
+      SchedulingStrategy: REPLICA
+      ServiceName: !Sub ${ProjectName}-ecs-service
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-ecs-service_tag
+      TaskDefinition: !Ref ECSTaskDefinition
+
+############################################
+#### OutPuts                            ####
+############################################
+Outputs:
+  ECSRole:
+    Value: !Ref ECSRole
+    Description: ECS Role
+    Export:
+      Name: !Sub ${ProjectName}-ECSRole
+  TargetGroup:
+    Value: !Ref TargetGroup
+    Description: ALB target group
+    Export:
+      Name: !Sub ${ProjectName}-TargetGroup
+  ECSsg:
+    Value: !Ref ECSsg
+    Description: ECS security group
+    Export:
+      Name: !Sub ${ProjectName}-ECSsg

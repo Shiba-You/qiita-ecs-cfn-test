@@ -1,0 +1,17 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Create ECR
+
+Parameters:
+  ProjectName:
+    Default: ProjectName
+    Type: String
+    Description: Project Name
+
+Resources:
+  ECR:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub ${ProjectName}-ecr-repo
+      Tags:
+        - Key: Name
+          Value: !Sub ${ProjectName}-ecr-repo_tag
