@@ -9,6 +9,6 @@
   },
   {
     "ParameterKey": "ImageName",
-    "ParameterValue": "350559882992.dkr.ecr.ap-northeast-1.amazonaws.com/test-ecr-repo:latest"
+    "ParameterValue": "<自分のAWSアカウントID>.dkr.ecr.ap-northeast-1.amazonaws.com/test-ecr-repo:latest"
   }
 ]

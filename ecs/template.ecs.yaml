@@ -126,9 +126,11 @@ Resources:
       GroupDescription: security group from ecs to anywhere via endpoint for endpoint
       GroupName: !Sub ${ProjectName}-endpoint-tg
       SecurityGroupIngress:
-        - CidrIp: 0.0.0.0/0
+        - SourceSecurityGroupId: !GetAtt ECSsg.GroupId
           Description: from ecs
-          IpProtocol: -1
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-endpoint-sg_tag
@@ -199,14 +201,8 @@ Resources:
             Action:
               - "sts:AssumeRole"
       Path: /
-      Policies:
-        - PolicyName: AdminFromCfn
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: "*"
-                Resource: "*"
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
       Description: !Sub execution role for ${ProjectName}-${ECSTaskName}
       RoleName: !Sub ${ProjectName}-${ECSTaskName}
       Tags:
